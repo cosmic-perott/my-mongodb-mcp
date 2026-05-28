@@ -4,7 +4,7 @@ import { MongoClient } from 'mongodb';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 1. Initialize MongoDB Client and Database variable
+// 1. Initialize MongoDB Client
 const client = new MongoClient(process.env.MONGODB_URI);
 let db;
 
@@ -13,8 +13,10 @@ let db;
   try {
     console.log("🔄 Attempting to connect to MongoDB Atlas...");
     await client.connect();
-    db = client.db("travel_intelligence"); 
-    console.log("✅ Successfully connected to MongoDB Atlas!");
+    
+    // ⚠️ 스크린샷에 맞춰 실제 존재하는 sample_airbnb 데이터베이스로 변경!
+    db = client.db("sample_airbnb"); 
+    console.log("✅ Successfully connected to sample_airbnb database!");
 
     // Start the web server only AFTER the database connection is fully established
     app.listen(port, () => {
@@ -23,7 +25,7 @@ let db;
 
   } catch (err) {
     console.error("❌ Critical error during server initialization:", err);
-    process.exit(1); // Exit process so Render can automatically retry
+    process.exit(1);
   }
 })();
 
@@ -42,11 +44,11 @@ app.get('/mcp', (req, res) => {
       tools: [
         {
           name: "query_travel_intelligence",
-          description: "Search historical travel records, hotel reviews, and restaurant logs in MongoDB for a target city.",
+          description: "Search Airbnb hotel listings, room types, and accommodation records in MongoDB for a target market or country.",
           inputSchema: {
             type: "object",
             properties: {
-              city: { type: "string", description: "The name of the city to search (e.g., 'New York City')" }
+              city: { type: "string", description: "The target market/country to search (e.g., 'United States', 'Brazil', 'Portugal')" }
             },
             required: ["city"]
           }
@@ -70,14 +72,20 @@ app.post('/mcp/messages', express.json(), async (req, res) => {
     }
 
     try {
-      // Case-insensitive search inside travel_intelligence collection
-      const records = await db.collection("travel_intelligence")
-        .find({ $or: [ { city: new RegExp(city, 'i') }, { destination: new RegExp(city, 'i') } ] })
-        .limit(10)
+      // sample_airbnb 내부에 실제로 존재하는 listingsAndReviews 컬렉션 조회
+      const records = await db.collection("listingsAndReviews")
+        .find({ 
+          $or: [ 
+            { "address.market": new RegExp(city, 'i') }, 
+            { "address.country": new RegExp(city, 'i') } 
+          ] 
+        })
+        .project({ name: 1, space: 1, price: 1, room_type: 1, "address.market": 1, "address.country": 1 }) // 필요한 핵심 필드만 추출
+        .limit(5)
         .toArray();
 
       if (records.length === 0) {
-        return res.json({ result: { content: [{ type: "text", text: `No matching records found in the database for: ${city}` }] } });
+        return res.json({ result: { content: [{ type: "text", text: `No matching Airbnb listings found for: ${city}` }] } });
       }
 
       return res.json({
