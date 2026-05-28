@@ -4,30 +4,30 @@ import { MongoClient } from 'mongodb';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 1. 몽고디비 래퍼 및 글로벌 변수 선언
+// 1. Initialize MongoDB Client and Database variable
 const client = new MongoClient(process.env.MONGODB_URI);
 let db;
 
-// 2. 전체 초기화 과정을 순서대로 동기화 (IIFE 구조)
+// 2. Sequential Server Initialization using IIFE
 (async function initializeServer() {
   try {
-    console.log("🔄 MongoDB Atlas에 연결을 시도 중...");
+    console.log("🔄 Attempting to connect to MongoDB Atlas...");
     await client.connect();
     db = client.db("travel_intelligence"); 
-    console.log("✅ MongoDB Atlas에 완벽하게 연결되었습니다!");
+    console.log("✅ Successfully connected to MongoDB Atlas!");
 
-    // DB 연결이 끝난 '후에' 웹 서버 포트를 활성화합니다.
+    // Start the web server only AFTER the database connection is fully established
     app.listen(port, () => {
-      console.log(`🚀 순수 Express MCP 서버가 포트 ${port}에서 완벽하게 동작 중입니다!`);
+      console.log(`🚀 Pure Express MCP Server is running perfectly on port ${port}!`);
     });
 
   } catch (err) {
-    console.error("❌ 서버 초기화 중 치명적 오류 발생:", err);
-    process.exit(1); // 연결 실패 시 프로세스 종료로 Render가 재시도하게 만듦
+    console.error("❌ Critical error during server initialization:", err);
+    process.exit(1); // Exit process so Render can automatically retry
   }
 })();
 
-// 3. 구글 에이전트 빌더 SSE 초기화 엔드포인트
+// 3. MCP Discovery Endpoint for Google Agent Builder
 app.get('/mcp', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -42,11 +42,11 @@ app.get('/mcp', (req, res) => {
       tools: [
         {
           name: "query_travel_intelligence",
-          description: "지정된 도시의 과거 여행 기록, 호텔 리뷰, 맛집 로그를 몽고DB에서 검색합니다.",
+          description: "Search historical travel records, hotel reviews, and restaurant logs in MongoDB for a target city.",
           inputSchema: {
             type: "object",
             properties: {
-              city: { type: "string", description: "조회할 도시 이름 (예: 'New York City')" }
+              city: { type: "string", description: "The name of the city to search (e.g., 'New York City')" }
             },
             required: ["city"]
           }
@@ -58,26 +58,26 @@ app.get('/mcp', (req, res) => {
   res.write(`data: ${JSON.stringify(manifest)}\n\n`);
 });
 
-// 4. 에이전트 빌더 툴 호출 처리 (메시지 엔드포인트)
+// 4. MCP Tools Call Endpoint (Handles Agent requests)
 app.post('/mcp/messages', express.json(), async (req, res) => {
   const { method, params } = req.body;
 
   if (method === "tools/call" && params?.name === "query_travel_intelligence") {
     const city = params.arguments?.city;
     
-    // 이제 위에서 완벽히 대기하므로 db가 없을 수가 없습니다.
     if (!db) {
-      return res.json({ result: { content: [{ type: "text", text: "데이터베이스 연결이 초기화되지 않았습니다." }] } });
+      return res.json({ result: { content: [{ type: "text", text: "Database connection has not been initialized yet." }] } });
     }
 
     try {
+      // Case-insensitive search inside travel_intelligence collection
       const records = await db.collection("travel_intelligence")
         .find({ $or: [ { city: new RegExp(city, 'i') }, { destination: new RegExp(city, 'i') } ] })
         .limit(10)
         .toArray();
 
       if (records.length === 0) {
-        return res.json({ result: { content: [{ type: "text", text: `${city}에 대한 저장된 데이터가 DB에 없습니다.` }] } });
+        return res.json({ result: { content: [{ type: "text", text: `No matching records found in the database for: ${city}` }] } });
       }
 
       return res.json({
@@ -86,7 +86,7 @@ app.post('/mcp/messages', express.json(), async (req, res) => {
         }
       });
     } catch (error) {
-      return res.json({ result: { content: [{ type: "text", text: `DB 조회 중 에러 발생: ${error.message}` }] } });
+      return res.json({ result: { content: [{ type: "text", text: `Database query error: ${error.message}` }] } });
     }
   }
 
