@@ -30,17 +30,17 @@ server.tool(
   "Searches historical travel records, hotel reviews, and restaurant logs for a target city.",
   async ({ city }) => {
     if (!db) return { content: [{ type: "text", text: "Database not initialized yet." }] };
-    
+
     try {
       const records = await db.collection("travel_intelligence")
         .find({ $or: [ { city: new RegExp(city, 'i') }, { destination: new RegExp(city, 'i') } ] })
         .limit(10)
         .toArray();
-        
+
       if (records.length === 0) {
         return { content: [{ type: "text", text: `No cached records found in database for: ${city}` }] };
       }
-      
+
       return { content: [{ type: "text", text: JSON.stringify(records, null, 2) }] };
     } catch (error) {
       return { content: [{ type: "text", text: `Error querying collection: ${error.message}` }] };
