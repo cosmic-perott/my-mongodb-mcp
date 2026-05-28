@@ -4,22 +4,30 @@ import { MongoClient } from 'mongodb';
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 1. 몽고디비 연결 세팅
+// 1. 몽고디비 래퍼 및 글로벌 변수 선언
 const client = new MongoClient(process.env.MONGODB_URI);
 let db;
 
-async function connectDB() {
+// 2. 전체 초기화 과정을 순서대로 동기화 (IIFE 구조)
+(async function initializeServer() {
   try {
+    console.log("🔄 MongoDB Atlas에 연결을 시도 중...");
     await client.connect();
     db = client.db("travel_intelligence"); 
-    console.log("✅ MongoDB Atlas에 직접 연결 성공!");
-  } catch (err) {
-    console.error("❌ MongoDB 연결 실패:", err);
-  }
-}
-connectDB();
+    console.log("✅ MongoDB Atlas에 완벽하게 연결되었습니다!");
 
-// 2. 구글 에이전트 빌더가 MCP 연결 초기화할 때 바라보는 SSE 엔드포인트
+    // DB 연결이 끝난 '후에' 웹 서버 포트를 활성화합니다.
+    app.listen(port, () => {
+      console.log(`🚀 순수 Express MCP 서버가 포트 ${port}에서 완벽하게 동작 중입니다!`);
+    });
+
+  } catch (err) {
+    console.error("❌ 서버 초기화 중 치명적 오류 발생:", err);
+    process.exit(1); // 연결 실패 시 프로세스 종료로 Render가 재시도하게 만듦
+  }
+})();
+
+// 3. 구글 에이전트 빌더 SSE 초기화 엔드포인트
 app.get('/mcp', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -27,7 +35,6 @@ app.get('/mcp', (req, res) => {
     'Connection': 'keep-alive',
   });
   
-  // 에이전트 빌더에게 "나 이런 툴(함수) 가지고 있어"라고 규격에 맞춰 알려주기
   const manifest = {
     jsonrpc: "2.0",
     method: "notifications/initialized",
@@ -49,22 +56,21 @@ app.get('/mcp', (req, res) => {
   };
 
   res.write(`data: ${JSON.stringify(manifest)}\n\n`);
-  console.log("🔗 구글 에이전트 빌더가 채널을 열었습니다.");
 });
 
-// 3. 에이전트 빌더가 실제로 데이터 조회 명령(툴 호출)을 보낼 때 작동하는 곳
+// 4. 에이전트 빌더 툴 호출 처리 (메시지 엔드포인트)
 app.post('/mcp/messages', express.json(), async (req, res) => {
   const { method, params } = req.body;
 
   if (method === "tools/call" && params?.name === "query_travel_intelligence") {
     const city = params.arguments?.city;
     
+    // 이제 위에서 완벽히 대기하므로 db가 없을 수가 없습니다.
     if (!db) {
-      return res.json({ result: { content: [{ type: "text", text: "데이터베이스가 아직 준비되지 않았습니다." }] } });
+      return res.json({ result: { content: [{ type: "text", text: "데이터베이스 연결이 초기화되지 않았습니다." }] } });
     }
 
     try {
-      // 대소문자 구분 없이 도시 이름으로 몽고DB 조회
       const records = await db.collection("travel_intelligence")
         .find({ $or: [ { city: new RegExp(city, 'i') }, { destination: new RegExp(city, 'i') } ] })
         .limit(10)
@@ -85,8 +91,4 @@ app.post('/mcp/messages', express.json(), async (req, res) => {
   }
 
   res.sendStatus(200);
-});
-
-app.listen(port, () => {
-  console.log(`🚀 순수 Express MCP 서버가 포트 ${port}에서 동작 중입니다!`);
 });
